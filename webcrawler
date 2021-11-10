@@ -1,0 +1,89 @@
+#!/usr/bin/python3
+#
+# CS3700, Fall 2021
+# Dean Frame, Dan Susman
+# Web Crawler, Project 5
+
+import socket
+import ssl
+import sys
+from typing import Dict, Tuple
+
+URL = "fakebook.3700.network"
+PORT = 443
+BUFSIZE = 4096
+
+context = ssl.create_default_context()
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s_sock = context.wrap_socket(sock, server_hostname=URL)
+s_sock.connect((URL, PORT))
+
+class Crawler:
+    username = None
+    password = None
+    cookie = None
+    seen_pages = {} # set of complete page URLs that have been explored
+
+    def __init__(self):
+        """TODO: Add docstring"""
+
+    def set_username(self, username):
+        """TODO:"""
+        self.username = username
+        
+    def set_password(self, password):
+        """TODO:"""
+        self.password = password
+
+    def set_cookie(self, cookie):
+        """TODO:"""
+        self.cookie = cookie
+
+    def get_token_and_cookie(self) -> Tuple[str, str]:
+        """TODO:"""
+        global url
+        method = "GET"
+        version = "HTTP/1.1"
+        host = "Host: fakebook.3700.network"
+        accept = "Accept: text/html, application/xhtml+xml"
+        connnection = "Connection: keep-alive"
+        user_agent = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36"
+        request = method + " " + "/accounts/login/?next=/fakebook/" + " " + version + "\r\n" + host + "\r\n" + connnection + "\r\n" + accept +  "\r\n" + user_agent + "\r\n\r\n"
+        s_sock.send(request.encode())
+        return self.parse_for_cookie_and_token(s_sock.recv(BUFSIZE).decode())
+    
+    def parse_for_cookie_and_token(self, html_and_head) -> Tuple[str, str]:
+        """TODO:"""
+        status_code, headers, html = self.separate(html_and_head)
+        token_idx = html.index("csrfmiddlewaretoken")
+        token = html[token_idx+28:token_idx + 92]
+        cookie = headers["Set-Cookie"]
+        cookie = cookie[:cookie.index(";")]
+        self.set_cookie(cookie)
+        return cookie, token
+
+    def separate(self, html_and_head) -> Tuple[str, Dict[str, str], str]:
+        """TODO:"""
+        server_idx = html_and_head.index("Server")
+        status_code = html_and_head[:server_idx]
+        status_code = status_code[9:12]
+        doctype_idx = html_and_head.index("<!DOCTYPE")
+        header = html_and_head[server_idx:doctype_idx]
+        header = header.replace("\n ", " ").splitlines()
+        headers = {}
+        for line in header:
+            split_here = line.find(":")
+            headers[line[:split_here]] = line[split_here+2:]
+        return status_code, headers, html_and_head[doctype_idx:]
+
+
+crawler = Crawler()
+if len(sys.argv) != 3:
+    print("Please use this module by calling ./webcrawler [username] [password]!")
+else:
+    crawler.set_username(sys.argv[1])
+    crawler.set_password(sys.argv[2])
+
+# scrape for cookie, set to crawler
+
+crawler.get_token_and_cookie()
