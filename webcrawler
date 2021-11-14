@@ -22,6 +22,8 @@ class Crawler:
     username = None
     password = None
     cookie = None
+    token = None
+    session = None
     seen_pages = {} # set of complete page URLs that have been explored
 
     def __init__(self):
@@ -39,6 +41,14 @@ class Crawler:
         """TODO:"""
         self.cookie = cookie
 
+    def set_token(self, token):
+        """TODO:"""
+        self.token = token
+
+    def set_session(self, sess_id):
+        """TODO:"""
+        self.session = sess_id
+
     def get_token_and_cookie(self) -> Tuple[str, str]:
         """TODO:"""
         global url
@@ -50,7 +60,9 @@ class Crawler:
         user_agent = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36"
         request = method + " " + "/accounts/login/?next=/fakebook/" + " " + version + "\r\n" + host + "\r\n" + connnection + "\r\n" + accept +  "\r\n" + user_agent + "\r\n\r\n"
         s_sock.send(request.encode())
-        return self.parse_for_cookie_and_token(s_sock.recv(BUFSIZE).decode())
+        response = s_sock.recv(BUFSIZE).decode()
+        # print(response)
+        return self.parse_for_cookie_and_token(response)
     
     def parse_for_cookie_and_token(self, html_and_head) -> Tuple[str, str]:
         """TODO:"""
@@ -60,13 +72,18 @@ class Crawler:
         cookie = headers["Set-Cookie"]
         cookie = cookie[:cookie.index(";")]
         self.set_cookie(cookie)
+        self.set_token(token)
         return cookie, token
+
+    def get_status(self, html_and_head):
+        server_idx = html_and_head.index("Server")
+        status_code = html_and_head[:server_idx]
+        status_code = status_code[11:14]
+        return server_idx, status_code
 
     def separate(self, html_and_head) -> Tuple[str, Dict[str, str], str]:
         """TODO:"""
-        server_idx = html_and_head.index("Server")
-        status_code = html_and_head[:server_idx]
-        status_code = status_code[9:12]
+        server_idx, status_code = self.get_status(html_and_head)
         doctype_idx = html_and_head.index("<!DOCTYPE")
         header = html_and_head[server_idx:doctype_idx]
         header = header.replace("\n ", " ").splitlines()
@@ -76,6 +93,68 @@ class Crawler:
             headers[line[:split_here]] = line[split_here+2:]
         return status_code, headers, html_and_head[doctype_idx:]
 
+    def post_login(self):
+        print("POSTing LOGIN")
+        method = "POST"
+        version = "HTTP/1.1"
+        host = "Host: fakebook.3700.network"
+        accept = "Accept: text/html, application/xhtml+xml"
+        connnection = "Connection: keep-alive"
+        cookie = "Cookie: " + self.cookie
+        user_agent = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36"
+        content_type = "Content-Type: application/x-www-form-urlencoded"
+        payload = "username=" + self.username + "&password=" + self.password + "&csrfmiddlewaretoken=" + self.token + "&next=%2Ffakebook%2F"
+        content_length = "Content-Length: " + str(len(payload))
+        request = method + \
+            " " + \
+                "/accounts/login/?next=/fakebook/" + \
+                    " " + version + \
+                        "\r\n" + host + \
+                            "\r\n" + content_type + \
+                                "\r\n" + connnection + \
+                                    "\r\n" + cookie + \
+                                    "\r\n" + accept + \
+                                    "\r\n" + content_length + \
+                                    "\r\n\r\n" + payload 
+        print(request)
+        s_sock.send(request.encode())
+        response = str(s_sock.recv(BUFSIZE))
+        print(response)
+        _, status = self.get_status(response)
+        if (status == "302"):
+            location = response[response.index("Location:")+10:response.index("Expires")]
+            location = location[:-4]
+            self.parse_for_session(response)
+            self.http_get(location)
+
+    def parse_for_session(self, response):
+        """Parses the given response string for a session ID."""
+        idx = response.index("sessionid=")
+        session = response[idx:idx+268]
+        self.set_session(session)
+    
+    def http_get(self, url) -> str:
+        """Performs an HTTP GET Request and returns the response
+        from Fakebook's server."""
+        method = "GET"
+        version = "HTTP/1.1"
+        host = "Host: fakebook.3700.network"
+        accept = "Accept: text/html, application/xhtml+xml"
+        connnection = "Connection: keep-alive"
+        cookie = "Cookie: " + self.cookie + "; " + self.session
+        request = method + \
+            " " + \
+                url + \
+                    " " + version + \
+                        "\r\n" + host + \
+                                "\r\n" + connnection + \
+                                    "\r\n" + cookie + \
+                                    "\r\n" + accept + "\r\n\r\n"
+        print(request)
+        s_sock.send(request.encode())
+        response = str(s_sock.recv(BUFSIZE))
+        return response
+        
 
 crawler = Crawler()
 if len(sys.argv) != 3:
@@ -87,3 +166,16 @@ else:
 # scrape for cookie, set to crawler
 
 crawler.get_token_and_cookie()
+crawler.post_login()
+
+
+# TODO: notes
+# While loop?
+# Look at HTML, parse for <a>, recurse through pages of users (friends) looking for the secret flags
+# Secret flags list, global
+# when len(secret_flags) == 5, exit while loop, sys.exit(0) 
+# figure out the "frontier" -> use a deque?
+# BFS/DFS
+# Chunking? HTTP1.0 vs HTTP1.1
+        # if response closing tag != </html>, continue reading from sock
+# Need to check for 500s, 400s, 300s, 100s and react accordingly
