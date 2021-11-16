@@ -8,6 +8,9 @@ import socket
 import ssl
 import sys
 from typing import Dict, Tuple
+from collections import deque
+from html.parser import HTMLParser
+import re
 
 URL = "fakebook.3700.network"
 PORT = 443
@@ -24,7 +27,8 @@ class Crawler:
     cookie = None
     token = None
     session = None
-    seen_pages = {} # set of complete page URLs that have been explored
+    pages_to_visit = deque() # deque of page urls that we need to explore
+    seen_pages = set() # set of page urls that we have already explored
 
     def __init__(self):
         """TODO: Add docstring"""
@@ -48,6 +52,9 @@ class Crawler:
     def set_session(self, sess_id):
         """TODO:"""
         self.session = sess_id
+
+    def add_urls_to_deque(self, urls):
+        self.pages_to_visit.extend(urls)
 
     def get_token_and_cookie(self) -> Tuple[str, str]:
         """TODO:"""
@@ -76,6 +83,7 @@ class Crawler:
         return cookie, token
 
     def get_status(self, html_and_head):
+        """TODO: """
         server_idx = html_and_head.index("Server")
         status_code = html_and_head[:server_idx]
         status_code = status_code[11:14]
@@ -125,7 +133,7 @@ class Crawler:
             location = response[response.index("Location:")+10:response.index("Expires")]
             location = location[:-4]
             self.parse_for_session(response)
-            self.http_get(location)
+            return self.http_get(location)
 
     def parse_for_session(self, response):
         """Parses the given response string for a session ID."""
@@ -153,10 +161,25 @@ class Crawler:
         print(request)
         s_sock.send(request.encode())
         response = str(s_sock.recv(BUFSIZE))
-        return response
+        if "sessionid=" in response:
+            self.parse_for_session()
+        return response, url
+
+    def search_next_page(self):
+        url = self.pages_to_visit.pop()
+        return self.http_get(url)
         
+class AnchorParser(HTMLParser):
+    found_urls = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            for attr in attrs:
+                if attr[0] == "href":
+                    self.found_urls.append(attr[1])
 
 crawler = Crawler()
+parser = AnchorParser()
 if len(sys.argv) != 3:
     print("Please use this module by calling ./webcrawler [username] [password]!")
 else:
@@ -166,16 +189,64 @@ else:
 # scrape for cookie, set to crawler
 
 crawler.get_token_and_cookie()
-crawler.post_login()
+response, url = crawler.post_login()
 
-
+# data structure to hold secret flags
+secret_flags = []
 # TODO: notes
 # While loop?
-# Look at HTML, parse for <a>, recurse through pages of users (friends) looking for the secret flags
-# Secret flags list, global
+while len(secret_flags) < 5 and crawler.pages_to_visit:
+    # get the status code of the response
+
+    if "Connection: close" in response or len(response) == 0:
+        # kill socket, start again with new socket
+        s_sock.close()
+        sock.close()
+        context = ssl.create_default_context()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s_sock = context.wrap_socket(sock, server_hostname=URL)
+        s_sock.connect((URL, PORT))
+
+        response, url = crawler.http_get(url)
+
+    _, status_code = crawler.get_status(response)
+    if status_code == "403" or status_code == "404":
+        # abandon the current url --> move to the next url in the crawler's deque
+        print(status_code)
+    elif status_code == "500":
+        # try the current request again.
+        response, url = crawler.http_get(url)
+    elif status_code == "302":
+        location = response[response.index("Location:")+10:response.index("Expires")]
+        location = location[:-4]
+        response, url = crawler.http_get(location)
+    elif status_code == "200":
+        print("200")
+        # look for secret flag
+        searchResult = re.findall("secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
+        if searchResult:
+            searchResultGroups = list(map(lambda result : result.group(), searchResult))
+            secret_flags.extend(searchResultGroups)
+            # TODO: Print secret flags line by line
+            print("Secret flag found:", secret_flags)
+        
+        # look for anchors 
+        parser.feed(response)
+        new_urls = parser.found_urls
+        filtered_urls = list(filter(lambda possible_url : possible_url not in crawler.seen_pages, new_urls))
+
+        crawler.add_urls_to_deque(filtered_urls)
+        parser.found_urls = []
+
+        crawler.seen_pages.add(url)
+
+        response, url = crawler.search_next_page()
+    else:
+        print("Unknown status code:", status_code)
 # when len(secret_flags) == 5, exit while loop, sys.exit(0) 
 # figure out the "frontier" -> use a deque?
-# BFS/DFS
 # Chunking? HTTP1.0 vs HTTP1.1
         # if response closing tag != </html>, continue reading from sock
 # Need to check for 500s, 400s, 300s, 100s and react accordingly
+# #regex search:
+# re.search(secret_flag.+FLAG: ([a-zA-Z0-9]{64})) 
