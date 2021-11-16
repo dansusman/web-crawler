@@ -84,22 +84,25 @@ class Crawler:
 
     def get_status(self, html_and_head):
         """TODO: """
-        server_idx = html_and_head.index("Server")
-        status_code = html_and_head[:server_idx]
-        status_code = status_code[11:14]
-        return server_idx, status_code
+        status_code = re.search("(\d\d\d)", html_and_head)
+        if status_code:
+            return status_code.group()
+        else:
+            print("Invalid Response:", response)
+            sys.exit(0)
 
     def separate(self, html_and_head) -> Tuple[str, Dict[str, str], str]:
         """TODO:"""
-        server_idx, status_code = self.get_status(html_and_head)
-        doctype_idx = html_and_head.index("<!DOCTYPE")
-        header = html_and_head[server_idx:doctype_idx]
+        status_code = self.get_status(html_and_head)
+        doc_idx = html_and_head.index("<!DOCTYPE")
+        header = html_and_head[html_and_head.index("\r\n"):doc_idx]
         header = header.replace("\n ", " ").splitlines()
+        html = html_and_head[doc_idx:]
         headers = {}
         for line in header:
             split_here = line.find(":")
             headers[line[:split_here]] = line[split_here+2:]
-        return status_code, headers, html_and_head[doctype_idx:]
+        return status_code, headers, html
 
     def post_login(self):
         print("POSTing LOGIN")
@@ -124,11 +127,10 @@ class Crawler:
                                     "\r\n" + accept + \
                                     "\r\n" + content_length + \
                                     "\r\n\r\n" + payload 
-        print(request)
         s_sock.send(request.encode())
         response = str(s_sock.recv(BUFSIZE))
-        print(response)
-        _, status = self.get_status(response)
+        status = self.get_status(response)
+        print(status)
         if (status == "302"):
             location = response[response.index("Location:")+10:response.index("Expires")]
             location = location[:-4]
@@ -138,10 +140,11 @@ class Crawler:
     def parse_for_session(self, response):
         """Parses the given response string for a session ID."""
         idx = response.index("sessionid=")
-        session = response[idx:idx+268]
+        session = response[idx:]
+        session = session[:session.index(";")]
         self.set_session(session)
     
-    def http_get(self, url) -> str:
+    def http_get(self, url) -> Tuple[str, str]:
         """Performs an HTTP GET Request and returns the response
         from Fakebook's server."""
         method = "GET"
@@ -158,12 +161,11 @@ class Crawler:
                                 "\r\n" + connnection + \
                                     "\r\n" + cookie + \
                                     "\r\n" + accept + "\r\n\r\n"
-        print(request)
         s_sock.send(request.encode())
         response = str(s_sock.recv(BUFSIZE))
-        if "sessionid=" in response:
-            self.parse_for_session()
-        return response, url
+        if "Set-Cookie: sessionid=" in response:
+            self.parse_for_session(response)
+        return str(response), url
 
     def search_next_page(self):
         url = self.pages_to_visit.pop()
@@ -190,14 +192,12 @@ else:
 
 crawler.get_token_and_cookie()
 response, url = crawler.post_login()
+response = str(response)
 
 # data structure to hold secret flags
 secret_flags = []
-# TODO: notes
-# While loop?
-while len(secret_flags) < 5 and crawler.pages_to_visit:
+while len(secret_flags) < 5:
     # get the status code of the response
-
     if "Connection: close" in response or len(response) == 0:
         # kill socket, start again with new socket
         s_sock.close()
@@ -206,10 +206,9 @@ while len(secret_flags) < 5 and crawler.pages_to_visit:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s_sock = context.wrap_socket(sock, server_hostname=URL)
         s_sock.connect((URL, PORT))
-
         response, url = crawler.http_get(url)
 
-    _, status_code = crawler.get_status(response)
+    status_code = crawler.get_status(response)
     if status_code == "403" or status_code == "404":
         # abandon the current url --> move to the next url in the crawler's deque
         print(status_code)
@@ -217,16 +216,16 @@ while len(secret_flags) < 5 and crawler.pages_to_visit:
         # try the current request again.
         response, url = crawler.http_get(url)
     elif status_code == "302":
-        location = response[response.index("Location:")+10:response.index("Expires")]
+        location = response[response.index("Location:")+10:]
+        location = response[:response.index("\\r\\n")]
         location = location[:-4]
         response, url = crawler.http_get(location)
     elif status_code == "200":
-        print("200")
         # look for secret flag
         searchResult = re.findall("secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
         if searchResult:
-            searchResultGroups = list(map(lambda result : result.group(), searchResult))
-            secret_flags.extend(searchResultGroups)
+            # searchResultGroups = list(map(lambda result : result.group(), searchResult))
+            secret_flags.extend(searchResult)
             # TODO: Print secret flags line by line
             print("Secret flag found:", secret_flags)
         
@@ -243,10 +242,6 @@ while len(secret_flags) < 5 and crawler.pages_to_visit:
         response, url = crawler.search_next_page()
     else:
         print("Unknown status code:", status_code)
-# when len(secret_flags) == 5, exit while loop, sys.exit(0) 
-# figure out the "frontier" -> use a deque?
+        sys.exit(0)
 # Chunking? HTTP1.0 vs HTTP1.1
         # if response closing tag != </html>, continue reading from sock
-# Need to check for 500s, 400s, 300s, 100s and react accordingly
-# #regex search:
-# re.search(secret_flag.+FLAG: ([a-zA-Z0-9]{64})) 
