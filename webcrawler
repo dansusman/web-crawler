@@ -30,34 +30,35 @@ class Crawler:
     pages_to_visit = deque() # deque of page urls that we need to explore
     seen_pages = set() # set of page urls that we have already explored
 
-    def __init__(self):
-        """TODO: Add docstring"""
-
     def set_username(self, username):
-        """TODO:"""
+        """Sets the username of the crawler to the given string."""
         self.username = username
         
     def set_password(self, password):
-        """TODO:"""
+        """Sets the password of the crawler to the given string."""
         self.password = password
 
     def set_cookie(self, cookie):
-        """TODO:"""
+        """Sets the current cookie (anti-CSRF token) of the
+        crawler to the given string.
+        """
         self.cookie = cookie
 
     def set_token(self, token):
-        """TODO:"""
+        """Sets the CSRF middleware token to the given string."""
         self.token = token
 
     def set_session(self, sess_id):
-        """TODO:"""
+        """Sets the session ID to the given string."""
         self.session = sess_id
 
     def add_urls_to_deque(self, urls):
+        """Adds the given list of found urls to the current
+        deque of page URLs to visit."""
         self.pages_to_visit.extend(urls)
 
     def get_token_and_cookie(self) -> Tuple[str, str]:
-        """TODO:"""
+        """Gets the CSRF middleware token and web app cookie."""
         global url
         method = "GET"
         version = "HTTP/1.1"
@@ -68,11 +69,11 @@ class Crawler:
         request = method + " " + "/accounts/login/?next=/fakebook/" + " " + version + "\r\n" + host + "\r\n" + connnection + "\r\n" + accept +  "\r\n" + user_agent + "\r\n\r\n"
         s_sock.send(request.encode())
         response = s_sock.recv(BUFSIZE).decode()
-        # print(response)
         return self.parse_for_cookie_and_token(response)
     
     def parse_for_cookie_and_token(self, html_and_head) -> Tuple[str, str]:
-        """TODO:"""
+        """Parses the given string (HTML and Headers) for the cookie and
+        CSRF middleware token."""
         status_code, headers, html = self.separate(html_and_head)
         token_idx = html.index("csrfmiddlewaretoken")
         token = html[token_idx+28:token_idx + 92]
@@ -83,16 +84,16 @@ class Crawler:
         return cookie, token
 
     def get_status(self, html_and_head):
-        """TODO: """
+        """Parses for the status code of the given response string."""
         status_code = re.search("(\d\d\d)", html_and_head)
         if status_code:
             return status_code.group()
         else:
-            print("Invalid Response:", response)
-            sys.exit(0)
+            print("Invalid Response:", html_and_head)
+            return "500"
 
     def separate(self, html_and_head) -> Tuple[str, Dict[str, str], str]:
-        """TODO:"""
+        """Separates the Headers from the HTML."""
         status_code = self.get_status(html_and_head)
         doc_idx = html_and_head.index("<!DOCTYPE")
         header = html_and_head[html_and_head.index("\r\n"):doc_idx]
@@ -105,7 +106,9 @@ class Crawler:
         return status_code, headers, html
 
     def post_login(self):
-        print("POSTing LOGIN")
+        """Makes a POST call to log in the user with the
+        credentials given at the command line.
+        """
         method = "POST"
         version = "HTTP/1.1"
         host = "Host: fakebook.3700.network"
@@ -128,14 +131,20 @@ class Crawler:
                                     "\r\n" + content_length + \
                                     "\r\n\r\n" + payload 
         s_sock.send(request.encode())
-        response = str(s_sock.recv(BUFSIZE))
+        response = s_sock.recv(BUFSIZE).decode()
         status = self.get_status(response)
-        print(status)
         if (status == "302"):
-            location = response[response.index("Location:")+10:response.index("Expires")]
-            location = location[:-4]
+            location = "/fakebook/"
+            self.parse_for_cookie(response)
             self.parse_for_session(response)
             return self.http_get(location)
+
+    def parse_for_cookie(self, response):
+        """Parses the given response string for a session ID."""
+        idx = response.index("csrftoken=")
+        cookie = response[idx:]
+        cookie = cookie[:cookie.index(";")]
+        self.set_cookie(cookie)
 
     def parse_for_session(self, response):
         """Parses the given response string for a session ID."""
@@ -146,32 +155,34 @@ class Crawler:
     
     def http_get(self, url) -> Tuple[str, str]:
         """Performs an HTTP GET Request and returns the response
-        from Fakebook's server."""
+        from Fakebook's server.
+        """
         method = "GET"
         version = "HTTP/1.1"
         host = "Host: fakebook.3700.network"
         accept = "Accept: text/html, application/xhtml+xml"
         connnection = "Connection: keep-alive"
         cookie = "Cookie: " + self.cookie + "; " + self.session
-        request = method + \
-            " " + \
-                url + \
-                    " " + version + \
-                        "\r\n" + host + \
-                                "\r\n" + connnection + \
-                                    "\r\n" + cookie + \
-                                    "\r\n" + accept + "\r\n\r\n"
+        request = method + " " + url + " " + version + \
+            "\r\n" + host + \
+                "\r\n" + connnection + \
+                    "\r\n" + cookie + \
+                        "\r\n" + accept + "\r\n\r\n"
         s_sock.send(request.encode())
-        response = str(s_sock.recv(BUFSIZE))
+        response = s_sock.recv(BUFSIZE).decode()
+        if "Set-Cookie: csrftoken=" in response:
+            self.parse_for_cookie(response)
         if "Set-Cookie: sessionid=" in response:
             self.parse_for_session(response)
-        return str(response), url
+        return response, url
 
     def search_next_page(self):
+        """Searchs the next page in the deque."""
         url = self.pages_to_visit.pop()
         return self.http_get(url)
         
 class AnchorParser(HTMLParser):
+    """Class to parse HTML for <a> tags."""
     found_urls = []
 
     def handle_starttag(self, tag, attrs):
@@ -192,13 +203,13 @@ else:
 
 crawler.get_token_and_cookie()
 response, url = crawler.post_login()
-response = str(response)
 
 # data structure to hold secret flags
 secret_flags = []
 while len(secret_flags) < 5:
     # get the status code of the response
     if "Connection: close" in response or len(response) == 0:
+        print("Restarting Socket")
         # kill socket, start again with new socket
         s_sock.close()
         sock.close()
@@ -211,6 +222,7 @@ while len(secret_flags) < 5:
     status_code = crawler.get_status(response)
     if status_code == "403" or status_code == "404":
         # abandon the current url --> move to the next url in the crawler's deque
+        response, url = crawler.search_next_page()
         print(status_code)
     elif status_code == "500":
         # try the current request again.
@@ -224,10 +236,8 @@ while len(secret_flags) < 5:
         # look for secret flag
         searchResult = re.findall("secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
         if searchResult:
-            # searchResultGroups = list(map(lambda result : result.group(), searchResult))
             secret_flags.extend(searchResult)
-            # TODO: Print secret flags line by line
-            print("Secret flag found:", secret_flags)
+            print(searchResult)
         
         # look for anchors 
         parser.feed(response)
@@ -243,5 +253,13 @@ while len(secret_flags) < 5:
     else:
         print("Unknown status code:", status_code)
         sys.exit(0)
+
 # Chunking? HTTP1.0 vs HTTP1.1
         # if response closing tag != </html>, continue reading from sock
+
+
+# only in the case that we don't see "/html>\n"
+# read more....
+# Nevermind to the below comments 
+# read only header to grab Content-Length
+# read Content-Length worth of bytes, if "</html>\n" not in bytes read, read more
