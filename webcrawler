@@ -9,7 +9,6 @@ import socket
 import ssl
 import sys
 import time
-from collections import deque
 from html.parser import HTMLParser
 from typing import Dict, Tuple
 
@@ -29,7 +28,7 @@ class Crawler:
     cookie = None
     token = None
     session = None
-    pages_to_visit = deque()  # deque of page urls that we need to explore
+    pages_to_visit = set()  # deque of page urls that we need to explore
     seen_pages = set()  # set of page urls that we have already explored
 
     def set_username(self, username):
@@ -57,7 +56,7 @@ class Crawler:
     def add_urls_to_deque(self, urls):
         """Adds the given list of found urls to the current
         deque of page URLs to visit."""
-        self.pages_to_visit.extend(urls)
+        self.pages_to_visit.update(urls)
 
     def get_token_and_cookie(self) -> Tuple[str, str]:
         """Gets the CSRF middleware token and web app cookie."""
@@ -215,7 +214,6 @@ secret_flags = []
 while len(secret_flags) < 5:
     # get the status code of the response
     if "Connection: close" in response or len(response) == 0:
-        print("Restarting Socket")
         time.sleep(2)
         # kill socket, start again with new socket
         s_sock.close()
@@ -246,7 +244,7 @@ while len(secret_flags) < 5:
             "secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
         if searchResult:
             secret_flags.extend(searchResult)
-            print(searchResult)
+            print(searchResult[0])
 
         # look for anchors
         parser.feed(response)
