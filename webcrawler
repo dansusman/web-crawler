@@ -4,13 +4,14 @@
 # Dean Frame, Dan Susman
 # Web Crawler, Project 5
 
+import re
 import socket
 import ssl
 import sys
-from typing import Dict, Tuple
+import time
 from collections import deque
 from html.parser import HTMLParser
-import re
+from typing import Dict, Tuple
 
 URL = "fakebook.3700.network"
 PORT = 443
@@ -21,19 +22,20 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s_sock = context.wrap_socket(sock, server_hostname=URL)
 s_sock.connect((URL, PORT))
 
+
 class Crawler:
     username = None
     password = None
     cookie = None
     token = None
     session = None
-    pages_to_visit = deque() # deque of page urls that we need to explore
-    seen_pages = set() # set of page urls that we have already explored
+    pages_to_visit = deque()  # deque of page urls that we need to explore
+    seen_pages = set()  # set of page urls that we have already explored
 
     def set_username(self, username):
         """Sets the username of the crawler to the given string."""
         self.username = username
-        
+
     def set_password(self, password):
         """Sets the password of the crawler to the given string."""
         self.password = password
@@ -66,11 +68,12 @@ class Crawler:
         accept = "Accept: text/html, application/xhtml+xml"
         connnection = "Connection: keep-alive"
         user_agent = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36"
-        request = method + " " + "/accounts/login/?next=/fakebook/" + " " + version + "\r\n" + host + "\r\n" + connnection + "\r\n" + accept +  "\r\n" + user_agent + "\r\n\r\n"
+        request = method + " " + "/accounts/login/?next=/fakebook/" + " " + version + "\r\n" + \
+            host + "\r\n" + connnection + "\r\n" + accept + "\r\n" + user_agent + "\r\n\r\n"
         s_sock.send(request.encode())
         response = s_sock.recv(BUFSIZE).decode()
         return self.parse_for_cookie_and_token(response)
-    
+
     def parse_for_cookie_and_token(self, html_and_head) -> Tuple[str, str]:
         """Parses the given string (HTML and Headers) for the cookie and
         CSRF middleware token."""
@@ -117,19 +120,20 @@ class Crawler:
         cookie = "Cookie: " + self.cookie
         user_agent = "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36"
         content_type = "Content-Type: application/x-www-form-urlencoded"
-        payload = "username=" + self.username + "&password=" + self.password + "&csrfmiddlewaretoken=" + self.token + "&next=%2Ffakebook%2F"
+        payload = "username=" + self.username + "&password=" + self.password + \
+            "&csrfmiddlewaretoken=" + self.token + "&next=%2Ffakebook%2F"
         content_length = "Content-Length: " + str(len(payload))
         request = method + \
             " " + \
-                "/accounts/login/?next=/fakebook/" + \
-                    " " + version + \
-                        "\r\n" + host + \
-                            "\r\n" + content_type + \
-                                "\r\n" + connnection + \
-                                    "\r\n" + cookie + \
-                                    "\r\n" + accept + \
-                                    "\r\n" + content_length + \
-                                    "\r\n\r\n" + payload 
+            "/accounts/login/?next=/fakebook/" + \
+            " " + version + \
+            "\r\n" + host + \
+            "\r\n" + content_type + \
+            "\r\n" + connnection + \
+            "\r\n" + cookie + \
+            "\r\n" + accept + \
+            "\r\n" + content_length + \
+            "\r\n\r\n" + payload
         s_sock.send(request.encode())
         response = s_sock.recv(BUFSIZE).decode()
         status = self.get_status(response)
@@ -152,7 +156,7 @@ class Crawler:
         session = response[idx:]
         session = session[:session.index(";")]
         self.set_session(session)
-    
+
     def http_get(self, url) -> Tuple[str, str]:
         """Performs an HTTP GET Request and returns the response
         from Fakebook's server.
@@ -165,9 +169,9 @@ class Crawler:
         cookie = "Cookie: " + self.cookie + "; " + self.session
         request = method + " " + url + " " + version + \
             "\r\n" + host + \
-                "\r\n" + connnection + \
-                    "\r\n" + cookie + \
-                        "\r\n" + accept + "\r\n\r\n"
+            "\r\n" + connnection + \
+            "\r\n" + cookie + \
+            "\r\n" + accept + "\r\n\r\n"
         s_sock.send(request.encode())
         response = s_sock.recv(BUFSIZE).decode()
         if "Set-Cookie: csrftoken=" in response:
@@ -180,7 +184,8 @@ class Crawler:
         """Searchs the next page in the deque."""
         url = self.pages_to_visit.pop()
         return self.http_get(url)
-        
+
+
 class AnchorParser(HTMLParser):
     """Class to parse HTML for <a> tags."""
     found_urls = []
@@ -191,16 +196,17 @@ class AnchorParser(HTMLParser):
                 if attr[0] == "href":
                     self.found_urls.append(attr[1])
 
+
 crawler = Crawler()
 parser = AnchorParser()
 if len(sys.argv) != 3:
-    print("Please use this module by calling ./webcrawler [username] [password]!")
+    print(
+        "Please use this module by calling ./webcrawler [username] [password]!")
 else:
     crawler.set_username(sys.argv[1])
     crawler.set_password(sys.argv[2])
 
 # scrape for cookie, set to crawler
-
 crawler.get_token_and_cookie()
 response, url = crawler.post_login()
 
@@ -210,6 +216,7 @@ while len(secret_flags) < 5:
     # get the status code of the response
     if "Connection: close" in response or len(response) == 0:
         print("Restarting Socket")
+        time.sleep(2)
         # kill socket, start again with new socket
         s_sock.close()
         sock.close()
@@ -222,8 +229,8 @@ while len(secret_flags) < 5:
     status_code = crawler.get_status(response)
     if status_code == "403" or status_code == "404":
         # abandon the current url --> move to the next url in the crawler's deque
+        print(status_code, url)
         response, url = crawler.search_next_page()
-        print(status_code)
     elif status_code == "500":
         # try the current request again.
         response, url = crawler.http_get(url)
@@ -234,15 +241,18 @@ while len(secret_flags) < 5:
         response, url = crawler.http_get(location)
     elif status_code == "200":
         # look for secret flag
-        searchResult = re.findall("secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
+        searchResult = re.findall(
+            "secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
         if searchResult:
             secret_flags.extend(searchResult)
             print(searchResult)
-        
-        # look for anchors 
+
+        # look for anchors
         parser.feed(response)
         new_urls = parser.found_urls
-        filtered_urls = list(filter(lambda possible_url : possible_url not in crawler.seen_pages, new_urls))
+        filtered_urls = list(filter(lambda possible_url: possible_url not in crawler.seen_pages
+                                    and "logout" not in possible_url
+                                    and "admin" not in possible_url, new_urls))
 
         crawler.add_urls_to_deque(filtered_urls)
         parser.found_urls = []
@@ -251,6 +261,8 @@ while len(secret_flags) < 5:
 
         response, url = crawler.search_next_page()
     else:
+        print(url)
+        print(response)
         print("Unknown status code:", status_code)
         sys.exit(0)
 
@@ -260,6 +272,6 @@ while len(secret_flags) < 5:
 
 # only in the case that we don't see "/html>\n"
 # read more....
-# Nevermind to the below comments 
+# Nevermind to the below comments
 # read only header to grab Content-Length
 # read Content-Length worth of bytes, if "</html>\n" not in bytes read, read more
