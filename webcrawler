@@ -258,17 +258,5 @@ while len(secret_flags) < 5:
 
         response, url = crawler.search_next_page()
     else:
-        print(url)
-        print(response)
         print("Unknown status code:", status_code)
         sys.exit(0)
-
-# Chunking? HTTP1.0 vs HTTP1.1
-        # if response closing tag != </html>, continue reading from sock
-
-
-# only in the case that we don't see "/html>\n"
-# read more....
-# Nevermind to the below comments
-# read only header to grab Content-Length
-# read Content-Length worth of bytes, if "</html>\n" not in bytes read, read more
