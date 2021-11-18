@@ -240,6 +240,7 @@ while len(secret_flags) < 5:
         location = location[:-4]
         response, url = crawler.http_get(location)
     elif status_code == "200":
+        crawler.seen_pages.add(url)
         # look for secret flag
         searchResult = re.findall(
             "secret_flag.+FLAG: ([a-zA-Z0-9]{64})", response)
@@ -256,8 +257,6 @@ while len(secret_flags) < 5:
 
         crawler.add_urls_to_deque(filtered_urls)
         parser.found_urls = []
-
-        crawler.seen_pages.add(url)
 
         response, url = crawler.search_next_page()
     else:
